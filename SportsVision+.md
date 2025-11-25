@@ -3,13 +3,13 @@
 📁 SportsVision+ : Master Architecture & Implementation Guide
 =============================================================
 
-Project Goal: End-to-end real-time football analytics system.
+**Project Goal**: End-to-end real-time football analytics system.
 
-Hardware Constraint: Single Laptop GPU (RTX 3050/3060/4050).
+**Hardware Constraint**: Single Laptop GPU (RTX 3050/3060/4050).
 
-Core Strategy: Asynchronous Level-of-Detail (LOD) Pipeline.
+**Core Strategy**: Reuse specific logic from `football_ai.ipynb` but optimize it for a real-time asynchronous Level-of-Detail (LOD) Pipeline (30 FPS).
 
-Data Source: SoccerNet (Tracking) for training, generic broadcast video for inference.
+**Data Source**: Use SoccerNet (Tracking) for training the YOLO model, Roboflow Universe logic for the Pitch model and generic broadcast video for inference.
 
 * * * * *
 
@@ -18,8 +18,6 @@ Data Source: SoccerNet (Tracking) for training, generic broadcast video for infe
 
 Create this exact folder structure.
 
-Plaintext
-
 ```
 sportsvision-plus/
 ├── data/
@@ -27,23 +25,22 @@ sportsvision-plus/
 │   ├── processed/           # Output of your parser (YOLO format images/labels)
 │   └── models/              # Place .pt files here (yolo11n.pt, pitch_model.pt)
 ├── src/
-│   ├── data_engine/         # Scripts to handle SoccerNet data
+│   ├── data_engine/         # Scripts to handle SoccerNet data (Data Parsing Scripts)
 │   │   ├── __init__.py
 │   │   └── soccernet_parser.py
 │   ├── inference/           # Core AI Logic
 │   │   ├── __init__.py
-│   │   ├── detector.py      # YOLO11 Wrapper
+│   │   ├── detector.py      # YOLO11 + Roboflow Pitch Model
 │   │   ├── tracker.py       # ByteTrack + Ball Interpolation
-│   │   ├── team.py          # Team Color Classifier (KMeans)
+│   │   ├── team.py          # Team Color Classifier (KMeans) ((Optimized from Notebook))
 │   │   └── pipeline.py      # Main System Loop (The Orchestrator)
 │   ├── utils/
 │   │   ├── __init__.py
-│   │   ├── geometry.py      # Homography & ViewTransformer
-│   │   └── viz.py           # Annotators (Boxes, Radar, Text)
+│   │   ├── geometry.py      # Homography & ViewTransformer ((Notebook Cell 47))
+│   │   └── viz.py           # Annotators (Boxes, Radar, Text) / Pitch Drawing (Notebook Cell 46)
 │   └── web/                 # Visualization
 │       ├── __init__.py
-│       └── main.py          # FastAPI App
-├── notebooks/               # For experimentation
+│       └── main.py          # FastAPI MJPEG Streamer
 ├── requirements.txt
 ├── Dockerfile
 └── README.md
@@ -56,8 +53,6 @@ sportsvision-plus/
 -------------------------------------
 
 Copy this content. It includes the exact libraries needed for the notebook reuse and the pipeline.
-
-Plaintext
 
 ```
 # Core Data & Vision
@@ -111,7 +106,7 @@ Here is the instruction set for every Python file.
 
 ### B. Inference Layer (`src/inference/`)
 
-**File:** `detector.py`
+**File:** `detector.py` (The Eyes)
 
 -   **Class:** `ObjectDetector`
 
@@ -125,7 +120,41 @@ Here is the instruction set for every Python file.
 
     -   **Optimization:** Add a method `predict_pitch(frame)` that uses the Roboflow `inference` API (reusing the `PITCH_DETECTION_MODEL` from the notebook) to find field keypoints. This runs *only* on the first few frames.
 
-**File:** `tracker.py`
+**Instruction:** Wraps two models.
+
+1.  **Player/Ball:** Uses `ultralytics.YOLO`.
+
+2.  **Pitch Keypoints:** Uses `inference.get_model` (Roboflow).
+
+**Notebook Source:** Cell 38.
+
+**Logic to Implement:**
+
+Python
+
+```
+from ultralytics import YOLO
+from inference import get_model
+
+class ObjectDetector:
+    def __init__(self, yolo_path="yolov8n.pt", roboflow_api_key=None):
+        self.player_model = YOLO(yolo_path)
+        # Reused from Notebook Cell 38
+        self.pitch_model = get_model(model_id="football-field-detection-f07vi-pjo7k/1", api_key=roboflow_api_key)
+
+    def detect_objects(self, frame):
+        # Return supervision.Detections
+        return self.player_model(frame)[0]
+
+    def detect_pitch(self, frame):
+        # Reused from Notebook Cell 40
+        # Returns keypoints (4 corners) for Homography
+        result = self.pitch_model.infer(frame, confidence=0.3)[0]
+        return result
+
+```
+
+**File:** `tracker.py` (The Smoother)
 
 -   **Class:** `bTrack`
 
@@ -141,7 +170,31 @@ Here is the instruction set for every Python file.
 
     -   **Interpolation:** If ball is missing for < 5 frames, predict its location linearly.
 
-**File:** `team.py`
+**Instruction:** Uses ByteTrack to assign IDs, but adds the "Anti-Teleport" logic from the notebook.
+
+**Notebook Source:** Cell 57 (`replace_outliers_based_on_distance`).
+
+**Logic to Implement:**
+
+1.  Initialize `sv.ByteTrack`.
+
+2.  **Add this function inside the class:**
+
+    Python
+
+    ```
+    def validate_ball_track(self, current_pos, history):
+        # Logic from Notebook Cell 57
+        # If distance(current, last) > 500px:
+        #     return None (Ignore this detection, it's a ghost)
+        # else:
+        #     return current_pos
+
+    ```
+
+3.  Store a history of the Ball's position. If detection is missing, predict next position: `pos_t = pos_{t-1} + velocity`.
+
+**File:** `team.py` (The Classifier)
 
 -   **Class:** `TeamClassifier`
 
@@ -154,6 +207,24 @@ Here is the instruction set for every Python file.
     -   Method `predict(crop)`: Returns `0` (Team A) or `1` (Team B).
 
     -   **Optimization:** Unlike the notebook which uses SigLIP (heavy), simply use `mean_color = crop.mean(axis=(0,1))` for the feature vector. It's fast and accurate enough for distinct jerseys.
+
+**Instruction:** Determines if a player is Team A or Team B.56
+
+**Notebook Source:** Cell 31 (`TeamClassifier`).
+
+**Optimization:**
+
+-   **Do NOT** use the SigLIP model from the notebook (it is too slow for real-time).
+
+-   **DO** use the `KMeans` logic from **Cell 24**.
+
+-   **Logic:**
+
+    1.  `fit(crops)`: Take 30 image crops. Calculate the **Average RGB Color** of the center of the crop.
+
+    2.  Feed these `(R, G, B)` vectors into `KMeans(n_clusters=2)`.
+
+    3.  `predict(crop)`: Get average color -> `kmeans.predict`.
 
 **File:** `pipeline.py` (The Brain)
 
@@ -179,7 +250,7 @@ Here is the instruction set for every Python file.
 
     8.  **Output:** Combine Camera Frame + Radar Image side-by-side.
 
-### C. Utilities Layer (`src/utils/`)
+### C. Utilities Layer (`src/utils/`) (The Radar Logic)
 
 **File:** `geometry.py`
 
@@ -191,13 +262,53 @@ Here is the instruction set for every Python file.
 
     -   `transform_points(points)`: Maps camera pixels to 2D pitch coordinates.
 
-**File:** `viz.py`
+**Instruction:** This file must implement the Homography logic to map the camera view to the 2D pitch.
+
+**Notebook Source:** Cell 47.
+
+**Logic to Implement:**
+
+Python
+
+```
+import cv2
+import numpy as np
+
+class ViewTransformer:
+    def __init__(self, source: np.ndarray, target: np.ndarray):
+        # Maps pixels (source) to meters/template (target)
+        source = source.astype(np.float32)
+        target = target.astype(np.float32)
+        self.m, _ = cv2.findHomography(source, target)
+
+    def transform_points(self, points: np.ndarray) -> np.ndarray:
+        if points.size == 0:
+            return points
+        reshaped_points = points.reshape(-1, 1, 2).astype(np.float32)
+        transformed_points = cv2.perspectiveTransform(reshaped_points, self.m)
+        return transformed_points.reshape(-1, 2)
+
+```
+
+**File:** `viz.py` (The Drawing Logic)
 
 -   **Logic:**
 
     -   Initialize `sv.BoxAnnotator`, `sv.LabelAnnotator` (from Notebook).
 
     -   Function `draw_radar(points, team_ids)`: Creates a green rectangle (pitch) and draws dots (players) based on transformed coordinates.
+
+**Instruction:** Create a function to draw the 2D "Minimap".
+
+**Notebook Source:** Cell 43 (`SoccerPitchConfiguration`) and Cell 46 (`draw_pitch`).
+
+**Logic to Implement:**
+
+1.  Define `SoccerPitchConfiguration` (standard dimensions: width=105m, height=68m, etc.).
+
+2.  Implement `draw_pitch(config)` which draws the green field, white lines, and center circle using OpenCV drawing commands (`cv2.line`, `cv2.circle`) onto a blank image.
+
+3.  Implement `draw_points_on_pitch(image, points, color)` to plot the players on that map.
 
 ### D. Web Layer (`src/web/`)
 
