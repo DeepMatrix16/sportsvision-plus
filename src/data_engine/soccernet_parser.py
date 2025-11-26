@@ -18,8 +18,6 @@ YOLO Class IDs:
 YOLO Format: [class_id, x_center/img_w, y_center/img_h, w/img_w, h/img_h]
 """
 
-import os
-import re
 import shutil
 import configparser
 from pathlib import Path
