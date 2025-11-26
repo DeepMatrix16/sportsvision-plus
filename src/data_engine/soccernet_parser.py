@@ -56,7 +56,7 @@ def parse_class_from_tracklet_info(tracklet_info: str) -> Optional[int]:
     if info_lower.startswith("ball"):
         return 0
     
-    # Goalkeeper (check before player since "goalkeeper" contains no "player" substring issues)
+    # Check for goalkeeper before player to avoid accidentally matching a goalkeeper as a player (goalkeeper strings don't contain 'player')
     if "goalkeeper" in info_lower or "goalie" in info_lower:
         return 3
     
