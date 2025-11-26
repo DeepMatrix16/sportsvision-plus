@@ -73,6 +73,9 @@ fastapi
 uvicorn[standard]
 python-multipart    # Required for MJPEG streaming
 
+# SoccerNet Dataset
+SoccerNet --upgrade
+
 ```
 
 * * * * *
@@ -86,23 +89,40 @@ Here is the instruction set for every Python file.
 
 **File:** `soccernet_parser.py`
 
--   **Purpose:** Converts SoccerNet "Tracking" JSONs into YOLO format.
+-   **Purpose:** Converts SoccerNet "Tracking" MOT format into YOLO format.
 
 -   **Key Function:** `parse_soccernet_tracking(input_dir, output_dir)`
 
+-   **SoccerNet Data Structure:**
+    ```
+    SNMOT-XXX/
+    ├── gt/
+    │   └── gt.txt          # MOT ground truth annotations
+    ├── img1/               # Video frames as images
+    ├── seqinfo.ini         # Sequence metadata (image dimensions, fps)
+    └── gameinfo.ini        # Track ID to class mapping
+    ```
+
+-   **MOT Format (`gt.txt`):**
+    ```
+    frame_id, track_id, x, y, w, h, conf, class_id, visibility
+    ```
+
 -   **Logic:**
 
-    1.  Iterate through the SoccerNet folder structure.
+    1.  Iterate through each `SNMOT-XXX` sequence folder.
 
-    2.  Open `Gt-Chunks.json`.
+    2.  Parse `seqinfo.ini` to get image dimensions (width, height).
 
-    3.  Map SoccerNet classes to ID: `0: Ball`, `1: Player`, `2: Referee`, `3: Goalkeeper`.
+    3.  Parse `gameinfo.ini` to map track IDs to class names (e.g., `trackletID_0=player team left`).
 
-    4.  Extract bbox `[x, y, w, h]` (absolute pixels).
+    4.  Parse `gt/gt.txt` for bounding box annotations in MOT format.
 
-    5.  **Critical:** Convert to YOLO format `[x_center/img_w, y_center/img_h, w/img_w, h/img_h]`.
+    5.  Map SoccerNet classes to YOLO IDs: `0: Ball`, `1: Player`, `2: Referee`, `3: Goalkeeper`.
 
-    6.  Save image frame (using `cv2`) and corresponding `.txt` label file.
+    6.  **Critical:** Convert to YOLO format `[class_id, x_center/img_w, y_center/img_h, w/img_w, h/img_h]`.
+
+    7.  Copy image frames from `img1/` and save corresponding `.txt` label files.
 
 ### B. Inference Layer (`src/inference/`)
 
@@ -362,3 +382,98 @@ class ViewTransformer:
     -   `uvicorn src.web.main:app --reload`
 
     -   Open browser to `localhost:8000/video_feed`.
+
+* * * * *
+
+4\. Implementation Guide
+-------------------------------------
+
+### **Phase 1: The Foundation (Data & Models)**
+
+**1\. Create the Folder Structure**
+
+-   Before writing code, create the empty directories (`data/`, `src/inference`, etc.) exactly as shown in the Blueprint.
+
+**2\. Download Data**
+
+-   **Action:** Download the **SoccerNet Tracking** dataset (just one or two chunks/games to start).
+
+-   **Location:** Save it into `data/soccernet/`.
+
+**3\. Code `src/data_engine/soccernet_parser.py`**
+
+-   **Why:** You can't train a model without data.
+
+-   **Task:** Write the script to convert the SoccerNet MOT format into YOLO format. The parser should:
+    -   Handle `gt/gt.txt` files (MOT ground truth format)
+    -   Parse `seqinfo.ini` for image dimensions
+    -   Parse `gameinfo.ini` for track ID to class mappings
+    -   Auto-extract `.zip` files if found
+
+-   **Run:** Execute this script. Check `data/processed/` to ensure you see images and text files.
+
+**4\. Train Your YOLO Model**
+
+-   **Why:** You need the `best.pt` file for your detector to work.
+
+-   **Task:** Run the YOLO training command on your processed data.
+
+-   **Goal:** While this trains (it might take an hour), move to Phase 2.
+
+* * * * *
+
+### **Phase 2: The Core Logic (While Model Trains)**
+
+**5\. Code `src/utils/geometry.py`**
+
+-   **Why:** This is independent code (Math).
+
+-   **Task:** Implement the `ViewTransformer` class using the code from the notebook I provided.
+
+**6\. Code `src/utils/viz.py`**
+
+-   **Why:** You need a way to see what you are building.
+
+-   **Task:** Implement the functions to draw the pitch (Minimap) and the bounding boxes.
+
+* * * * *
+
+### **Phase 3: The Intelligence**
+
+**7\. Code `src/inference/tracker.py`**
+
+-   **Why:** It connects detection to tracking.
+
+-   **Task:** Implement ByteTrack and the **"Anti-Teleport"** logic (ball smoothing) here.
+
+**8\. Code `src/inference/team.py`**
+
+-   **Why:** It handles color logic.
+
+-   **Task:** Implement the KMeans logic (simplified version).
+
+**9\. Code `src/inference/detector.py`**
+
+-   **Why:** Now that your training (Step 4) is likely done, you can load the model.
+
+-   **Task:** Implement the class that loads your new `best.pt` AND the Roboflow Pitch model.
+
+* * * * *
+
+### **Phase 4: Assembly & Launch**
+
+**10\. Code `src/inference/pipeline.py`**
+
+-   **Why:** This connects all previous modules.
+
+-   **Task:** Write the main loop that calls Detector -> Tracker -> Transformer -> Viz.
+
+**11\. Code `src/web/main.py`**
+
+-   **Why:** This is the user interface.
+
+-   **Task:** Write the FastAPI app to serve the video stream.
+
+**12\. Run & Test!**
+
+-   Start the server and watch your SportsVision+ system live.
