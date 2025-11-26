@@ -3,7 +3,7 @@
 📁 SportsVision+ : Master Architecture & Implementation Guide
 =============================================================
 
-**Project Goal**: End-to-end real-time football analytics system.
+**Project Goal**: Build an End-to-end real-time Football Analytics system.
 
 **Hardware Constraint**: Single Laptop GPU (RTX 3050/3060/4050).
 
