@@ -57,6 +57,9 @@ class ViewTransformer:
         source = source.astype(np.float32)
         target = target.astype(np.float32)
         self.m, _ = cv2.findHomography(source, target)
+        
+        if self.m is None:
+            raise ValueError("Failed to compute homography. Points may be collinear or degenerate.")
     
     def transform_points(
         self,

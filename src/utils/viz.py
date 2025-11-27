@@ -25,7 +25,8 @@ class SoccerPitchConfiguration:
     Configuration for standard soccer pitch dimensions.
     
     All measurements are in centimeters (cm) for precision.
-    Default values follow FIFA regulations for international matches.
+    Default values are based on the Roboflow Sports library configuration and the
+    football_ai.ipynb notebook reference. These may differ from official FIFA standards.
     
     Attributes:
         width (int): Pitch width in cm (touchline to touchline). Default: 7000 (70m)
@@ -564,6 +565,14 @@ def combine_views(
         else:  # top_left
             x_offset = 10
             y_offset = 10
+        
+        # Ensure radar fits within frame bounds
+        if x_offset + new_radar_w > cam_w or y_offset + new_radar_h > cam_h:
+            raise ValueError(
+                f"Radar overlay ({new_radar_w}x{new_radar_h}) at position "
+                f"({x_offset}, {y_offset}) exceeds camera frame dimensions ({cam_w}x{cam_h}). "
+                f"Reduce radar_scale or adjust radar_position."
+            )
         
         # Create overlay region
         roi = combined[y_offset:y_offset + new_radar_h, x_offset:x_offset + new_radar_w]
