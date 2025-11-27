@@ -10,7 +10,7 @@ Notebook Reference: football_ai.ipynb Cell 78
 
 import cv2
 import numpy as np
-from typing import Tuple, Optional
+from typing import Tuple
 import numpy.typing as npt
 
 
